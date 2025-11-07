@@ -8,8 +8,8 @@ PORT = 8000
 vol = modal.Volume.from_name("a1111-cache", create_if_missing=True)
 
 # Secret untuk HuggingFace dan CivitAI tokens
-HF_SECRET = modal.Secret.from_name("huggingface")
-CIVITAI_SECRET = modal.Secret.from_name("civitai")
+HF_SECRET = modal.Secret.from_name("huggingface-secret")
+CIVITAI_SECRET = modal.Secret.from_name("civitai-token")
 
 # Pada tahap build image
 a1111_image = (
