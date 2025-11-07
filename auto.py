@@ -41,6 +41,7 @@ a1111_image = (
         "aria2c --console-log-level=error -c -x 16 -s 16 -k 1M https://huggingface.co/embed/upscale/resolve/main/4x-UltraSharp.pth -d /app/webui/models/ESRGAN -o 4x-UltraSharp.pth",
         "aria2c --console-log-level=error -c -x 16 -s 16 -k 1M https://huggingface.co/runwayml/stable-diffusion-v1-5/resolve/main/v1-5-pruned.safetensors -d /app/webui/models/Stable-diffusion -o v1-5-pruned.safetensors",
         "aria2c --console-log-level=error -c -x 16 -s 16 -k 1M https://huggingface.co/SG161222/Realistic_Vision_V5.1/resolve/main/Realistic_Vision_V5.1.safetensors -d /app/webui/models/Stable-diffusion -o Realistic_Vision_V5.1.safetensorssafetensors",
+        "aria2c --console-log-level=error -c -x 16 -s 16 -k 1M https://huggingface.co/Qwen/Qwen2-VL-72B-Instruct/resolve/main/qwen2-vl-72b-instruct.safetensors -d /app/webui/models/Stable-diffusion -o qwen2-vl-72b-instruct.safetensors",
         "aria2c --console-log-level=error -c -x 16 -s 16 -k 1M https://huggingface.co/stabilityai/sd-vae-ft-mse-original/resolve/main/vae-ft-mse-840000-ema-pruned.safetensors -d /app/webui/models/VAE -o vae-ft-mse-840000-ema-pruned.safetensors",
         
         # Download contoh LoRA untuk testing
