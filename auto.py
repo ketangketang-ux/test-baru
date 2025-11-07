@@ -4,41 +4,53 @@ import modal
 
 PORT = 8000
 
-# Buat volume persisten
 vol = modal.Volume.from_name("a1111-cache", create_if_missing=True)
 
-# Image yang lebih simple dan reliable
+# Pakai image yang lebih compatible
 a1111_image = (
-    modal.Image.debian_slim(python_version="3.11")
+    modal.Image.debian_slim(python_version="3.10")  # Python 3.10 lebih stable
     .apt_install(
         "wget",
         "git", 
         "aria2",
         "libgl1",
         "libglib2.0-0",
+        "libsm6",
+        "libxext6",
+        "libxrender-dev",
     )
     .run_commands(
-        # Clone Auto1111
-        "git clone --depth 1 https://github.com/AUTOMATIC1111/stable-diffusion-webui /app/webui",
+        # Clone Auto1111 dengan branch yang stable
+        "git clone --depth 1 --branch v1.6.0 https://github.com/AUTOMATIC1111/stable-diffusion-webui /app/webui",
         
-        # Extensions penting saja
+        # Install torch yang compatible dulu
+        "pip install torch==2.0.1 torchvision==0.15.2 --index-url https://download.pytorch.org/whl/cu118",
+        
+        # Setup WebUI
+        "cd /app/webui && python -m venv venv",
+        "cd /app/webui && . venv/bin/activate && pip install --upgrade pip",
+        
+        # Install requirements dengan version fixing
+        "cd /app/webui && . venv/bin/activate && pip install -r requirements.txt",
+        
+        # Install pytorch-lightning version yang compatible
+        "cd /app/webui && . venv/bin/activate && pip install pytorch_lightning==1.9.4",
+        
+        # Install xformers untuk performance
+        "cd /app/webui && . venv/bin/activate && pip install xformers==0.0.20",
+        
+        # Extensions penting
         "cd /app/webui/extensions && git clone --depth 1 https://github.com/kohya-ss/sd-webui-additional-networks",
-        "cd /app/webui/extensions && git clone --depth 1 https://github.com/derrian-distro/LoRA_Easy_Training_Scripts",
         
-        # Buat folder structure
+        # Buat folder models
         "mkdir -p /app/webui/models/Stable-diffusion /app/webui/models/Lora",
         
-        # Download model utama saja (SD 1.5)
-        "cd /app/webui/models/Stable-diffusion && wget -q https://huggingface.co/runwayml/stable-diffusion-v1-5/resolve/main/v1-5-pruned.safetensors",
-        
-        # Setup environment yang lebih simple
-        "cd /app/webui && python -m venv venv",
-        "cd /app/webui && . venv/bin/activate && pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118",
-        "cd /app/webui && . venv/bin/activate && pip install -r requirements_versions.txt",
+        # Download model kecil dulu untuk testing
+        "cd /app/webui/models/Stable-diffusion && wget -q https://huggingface.co/runwayml/stable-diffusion-v1-5/resolve/main/v1-5-pruned-emaonly.safetensors -O v1-5-pruned-emaonly.safetensors",
     )
 )
 
-app = modal.App("a1111-simple", image=a1111_image)
+app = modal.App("a1111-fixed", image=a1111_image)
 
 @app.function(
     gpu="a100",
@@ -48,17 +60,14 @@ app = modal.App("a1111-simple", image=a1111_image)
 )
 @modal.web_server(port=PORT, startup_timeout=300)
 def run():
-    # Copy ke volume jika pertama kali
     if not os.path.exists("/webui/launch.py"):
         print("📦 Copying WebUI to persistent volume...")
         subprocess.run("cp -r /app/webui/* /webui/", shell=True, check=True)
     
-    # Pastikan folder ada
     os.makedirs("/webui/models/Lora", exist_ok=True)
     
     print("🚀 Starting WebUI...")
     
-    # Command yang lebih simple
     START_COMMAND = f"""
 cd /webui && \
 . venv/bin/activate && \
@@ -66,16 +75,16 @@ python launch.py \
     --listen \
     --port {PORT} \
     --skip-torch-cuda-test \
-    --no-download-sd-model
+    --no-download-sd-model \
+    --xformers \
+    --disable-safe-unpickle
 """
     
     process = subprocess.Popen(START_COMMAND, shell=True)
     process.wait()
 
-# Function untuk upload LoRA
 @app.function(volumes={"/webui": vol})
 def upload_lora(lora_file_path: str):
-    """Upload LoRA file"""
     import shutil
     lora_filename = os.path.basename(lora_file_path)
     dest_path = f"/webui/models/Lora/{lora_filename}"
@@ -84,7 +93,6 @@ def upload_lora(lora_file_path: str):
 
 @app.function(volumes={"/webui": vol}) 
 def list_loras():
-    """List LoRA files"""
     lora_dir = "/webui/models/Lora"
     lora_files = []
     if os.path.exists(lora_dir):
@@ -99,6 +107,6 @@ def list_loras():
     return {"loras": lora_files}
 
 if __name__ == "__main__":
-    print("🚀 Auto1111 WebUI - Simple Version")
-    print("📁 Includes: SD1.5 + LoRA extensions")
-    print("🌐 Access at: https://your-username--a1111-simple.modal.run")
+    print("🚀 Auto1111 WebUI - Fixed Version")
+    print("🔧 Fixed pytorch_lightning dependency")
+    print("🌐 Access at: https://your-username--a1111-fixed.modal.run")
