@@ -6,40 +6,48 @@ PORT = 8000
 
 vol = modal.Volume.from_name("a1111-cache", create_if_missing=True)
 
-# Pakai base image yang udah include CUDA
+# Pakai base image Modal yang reliable + install CUDA manual
 a1111_image = (
-    modal.Image.from_registry("nvidia/cuda:11.8-devel-ubuntu20.04", add_python="3.10")
+    modal.Image.debian_slim(python_version="3.10")
     .apt_install(
         "wget",
         "git", 
         "libgl1",
-        "libglib2.0-0",
+        "libglib2.0-0", 
         "libsm6",
         "libxext6",
         "libxrender-dev",
         "python3-venv",
         "python3-pip",
+        "build-essential",
+        "software-properties-common",
     )
     .run_commands(
-        # Install torch di system Python dulu
+        # Add NVIDIA repository dan install CUDA
+        "wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.0-1_all.deb",
+        "dpkg -i cuda-keyring_1.0-1_all.deb",
+        "apt-get update",
+        "apt-get install -y cuda-toolkit-11-8",
+        
+        # Install torch dengan CUDA support
         "pip3 install torch==2.0.1+cu118 torchvision==0.15.2+cu118 --index-url https://download.pytorch.org/whl/cu118",
         "pip3 install xformers==0.0.21",
         
         # Clone Auto1111
         "git clone --depth 1 https://github.com/AUTOMATIC1111/stable-diffusion-webui /app/webui",
         
-        # Buat venv dan install packages manual
+        # Setup venv
         "cd /app/webui && python3 -m venv venv",
         "cd /app/webui && . venv/bin/activate && pip install --upgrade pip",
         
-        # Install torch di venv juga
+        # Install torch di venv
         "cd /app/webui && . venv/bin/activate && pip install torch==2.0.1+cu118 torchvision==0.15.2+cu118 --index-url https://download.pytorch.org/whl/cu118",
         "cd /app/webui && . venv/bin/activate && pip install xformers==0.0.21",
         
-        # Install requirements lainnya
-        "cd /app/webui && . venv/bin/activate && pip install -r requirements.txt",
+        # Install requirements tanpa torch (karena udah diinstall)
+        "cd /app/webui && . venv/bin/activate && grep -v '^torch' requirements.txt > requirements_no_torch.txt && pip install -r requirements_no_torch.txt",
         
-        # Install packages penting manual
+        # Install packages penting
         "cd /app/webui && . venv/bin/activate && pip install pytorch_lightning==1.9.4 transformers accelerate safetensors opencv-python",
         
         # Extensions
@@ -52,7 +60,7 @@ a1111_image = (
     )
 )
 
-app = modal.App("a1111-final", image=a1111_image)
+app = modal.App("a1111-simple", image=a1111_image)
 
 @app.function(
     gpu="a100",
@@ -69,10 +77,6 @@ def run():
     os.makedirs("/webui/models/Lora", exist_ok=True)
     
     print("🚀 Starting WebUI...")
-    
-    # Test torch dulu
-    test_cmd = "cd /webui && . venv/bin/activate && python -c 'import torch; print(f\"Torch version: {torch.__version__}\"); print(f\"CUDA available: {torch.cuda.is_available()}\")'"
-    subprocess.run(test_cmd, shell=True)
     
     START_COMMAND = f"""
 cd /webui && \
@@ -113,25 +117,6 @@ def list_loras():
                 })
     return {"loras": lora_files}
 
-# Function untuk test environment
-@app.function(volumes={"/webui": vol})
-def test_environment():
-    """Test jika environment work"""
-    test_script = """
-cd /webui && . venv/bin/activate && python -c "
-import torch
-import torchvision
-import xformers
-print('✅ Torch version:', torch.__version__)
-print('✅ CUDA available:', torch.cuda.is_available())
-print('✅ Xformers version:', xformers.__version__)
-print('✅ Environment ready!')
-"
-"""
-    result = subprocess.run(test_script, shell=True, capture_output=True, text=True)
-    return {"output": result.stdout, "error": result.stderr}
-
 if __name__ == "__main__":
-    print("🚀 Auto1111 WebUI - Final Fixed Version")
-    print("🔧 Using CUDA 11.8 base image")
-    print("🌐 Access at: https://your-username--a1111-final.modal.run")
+    print("🚀 Auto1111 WebUI - Simple & Working")
+    print("🌐 Access at: https://your-username--a1111-simple.modal.run")
