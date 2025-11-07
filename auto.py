@@ -6,9 +6,9 @@ PORT = 8000
 
 vol = modal.Volume.from_name("a1111-cache", create_if_missing=True)
 
-# Pakai approach yang lebih simple - skip auto-install
+# Pakai base image yang udah include CUDA
 a1111_image = (
-    modal.Image.debian_slim(python_version="3.10")
+    modal.Image.from_registry("nvidia/cuda:11.8-devel-ubuntu20.04", add_python="3.10")
     .apt_install(
         "wget",
         "git", 
@@ -17,25 +17,30 @@ a1111_image = (
         "libsm6",
         "libxext6",
         "libxrender-dev",
+        "python3-venv",
+        "python3-pip",
     )
     .run_commands(
-        # Install torch yang compatible manual
-        "pip install torch==2.0.1+cu118 torchvision==0.15.2+cu118 --index-url https://download.pytorch.org/whl/cu118",
-        "pip install --upgrade pip",
-        "pip install xformers",
+        # Install torch di system Python dulu
+        "pip3 install torch==2.0.1+cu118 torchvision==0.15.2+cu118 --index-url https://download.pytorch.org/whl/cu118",
+        "pip3 install xformers==0.0.21",
         
         # Clone Auto1111
         "git clone --depth 1 https://github.com/AUTOMATIC1111/stable-diffusion-webui /app/webui",
         
-        # Buat venv dan install requirements manual
-        "cd /app/webui && python -m venv venv",
+        # Buat venv dan install packages manual
+        "cd /app/webui && python3 -m venv venv",
         "cd /app/webui && . venv/bin/activate && pip install --upgrade pip",
         
-        # Install requirements manual tanpa torch (karena udah diinstall)
-        "cd /app/webui && . venv/bin/activate && grep -v '^torch' requirements.txt > requirements_no_torch.txt && pip install -r requirements_no_torch.txt",
+        # Install torch di venv juga
+        "cd /app/webui && . venv/bin/activate && pip install torch==2.0.1+cu118 torchvision==0.15.2+cu118 --index-url https://download.pytorch.org/whl/cu118",
+        "cd /app/webui && . venv/bin/activate && pip install xformers==0.0.21",
         
-        # Install individual packages yang needed
-        "cd /app/webui && . venv/bin/activate && pip install pytorch_lightning==1.9.4 transformers accelerate safetensors",
+        # Install requirements lainnya
+        "cd /app/webui && . venv/bin/activate && pip install -r requirements.txt",
+        
+        # Install packages penting manual
+        "cd /app/webui && . venv/bin/activate && pip install pytorch_lightning==1.9.4 transformers accelerate safetensors opencv-python",
         
         # Extensions
         "mkdir -p /app/webui/extensions",
@@ -47,7 +52,7 @@ a1111_image = (
     )
 )
 
-app = modal.App("a1111-working", image=a1111_image)
+app = modal.App("a1111-final", image=a1111_image)
 
 @app.function(
     gpu="a100",
@@ -65,7 +70,10 @@ def run():
     
     print("🚀 Starting WebUI...")
     
-    # Skip environment preparation karena udah diinstall manual
+    # Test torch dulu
+    test_cmd = "cd /webui && . venv/bin/activate && python -c 'import torch; print(f\"Torch version: {torch.__version__}\"); print(f\"CUDA available: {torch.cuda.is_available()}\")'"
+    subprocess.run(test_cmd, shell=True)
+    
     START_COMMAND = f"""
 cd /webui && \
 . venv/bin/activate && \
@@ -75,7 +83,8 @@ python launch.py \
     --skip-prepare-environment \
     --skip-torch-cuda-test \
     --no-download-sd-model \
-    --xformers
+    --xformers \
+    --api
 """
     
     process = subprocess.Popen(START_COMMAND, shell=True)
@@ -104,7 +113,25 @@ def list_loras():
                 })
     return {"loras": lora_files}
 
+# Function untuk test environment
+@app.function(volumes={"/webui": vol})
+def test_environment():
+    """Test jika environment work"""
+    test_script = """
+cd /webui && . venv/bin/activate && python -c "
+import torch
+import torchvision
+import xformers
+print('✅ Torch version:', torch.__version__)
+print('✅ CUDA available:', torch.cuda.is_available())
+print('✅ Xformers version:', xformers.__version__)
+print('✅ Environment ready!')
+"
+"""
+    result = subprocess.run(test_script, shell=True, capture_output=True, text=True)
+    return {"output": result.stdout, "error": result.stderr}
+
 if __name__ == "__main__":
-    print("🚀 Auto1111 WebUI - Manual Install Version")
-    print("🔧 Pre-installed torch and dependencies")
-    print("🌐 Access at: https://your-username--a1111-working.modal.run")
+    print("🚀 Auto1111 WebUI - Final Fixed Version")
+    print("🔧 Using CUDA 11.8 base image")
+    print("🌐 Access at: https://your-username--a1111-final.modal.run")
