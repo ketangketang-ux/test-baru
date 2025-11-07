@@ -28,6 +28,7 @@ a1111_image = (
         "git clone --depth 1 https://github.com/camenduru/stable-diffusion-webui-images-browser /app/webui/extensions/stable-diffusion-webui-images-browser",
         # Download model ke folder yang sudah ditentukan dalam image
         "aria2c --console-log-level=error -c -x 16 -s 16 -k 1M https://huggingface.co/embed/upscale/resolve/main/4x-UltraSharp.pth -d /app/webui/models/ESRGAN -o 4x-UltraSharp.pth",
+        "aria2c --console-log-level=error -c -x 16 -s 16 -k 1M https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct/resolve/main/qwen2.5-vl-7b-instruct.safetensors -d /app/webui/models/qwen -o qwen2.5-vl-7b-instruct.safetensors",
         "aria2c --console-log-level=error -c -x 16 -s 16 -k 1M https://huggingface.co/artmozai/duchaiten-aiart-xl/resolve/main/duchaitenAiartSDXL_v33515.safetensors -d /app/webui/models/Stable-diffusion -o duchaitenAiartSDXL_v33515.safetensors",
         "aria2c --console-log-level=error -c -x 16 -s 16 -k 1M https://huggingface.co/ckpt/sdxl_vae/resolve/main/sdxl_vae.safetensors -d /app/webui/models/VAE -o sdxl_vae.safetensors",
         "python -m venv /app/webui/venv",
