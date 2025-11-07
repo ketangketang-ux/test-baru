@@ -4,106 +4,80 @@ import modal
 
 PORT = 8000
 
+# Buat volume persisten yang akan menyimpan file instalasi agar tidak perlu di-download ulang
 vol = modal.Volume.from_name("a1111-cache", create_if_missing=True)
 
-# FIXED VERSION - tanpa CUDA manual install
+# Pada tahap build image, kita clone dan download ke folder /app/webui
 a1111_image = (
-    modal.Image.debian_slim(python_version="3.10")
+    modal.Image.debian_slim(python_version="3.11")
     .apt_install(
         "wget",
-        "git", 
+        "git",
+        "aria2",
         "libgl1",
-        "libglib2.0-0", 
-        "libsm6",
-        "libxext6",
-        "libxrender-dev",
-        "python3-venv",
-        "python3-pip",
+        "libglib2.0-0",
+        "google-perftools",  # For tcmalloc
+    )
+    .env({"LD_PRELOAD": "/usr/lib/x86_64-linux-gnu/libtcmalloc.so.4"})
+    .run_commands(
+        # Clone kode ke folder /app/webui (bukan /webui)
+        "git clone --depth 1 --branch v1.10.1 https://github.com/AUTOMATIC1111/stable-diffusion-webui /app/webui",
+        "git clone --depth 1 https://github.com/BlafKing/sd-civitai-browser-plus /app/webui/extensions/sd-civitai-browser-plus",
+        "git clone --depth 1 https://huggingface.co/embed/negative /app/webui/embeddings/negative",
+        "git clone --depth 1 https://huggingface.co/embed/lora /app/webui/models/Lora/positive",
+        "git clone --depth 1 https://github.com/camenduru/stable-diffusion-webui-images-browser /app/webui/extensions/stable-diffusion-webui-images-browser",
+        # Download model ke folder yang sudah ditentukan dalam image
+        "aria2c --console-log-level=error -c -x 16 -s 16 -k 1M https://huggingface.co/embed/upscale/resolve/main/4x-UltraSharp.pth -d /app/webui/models/ESRGAN -o 4x-UltraSharp.pth",
+        "aria2c --console-log-level=error -c -x 16 -s 16 -k 1M https://huggingface.co/artmozai/duchaiten-aiart-xl/resolve/main/duchaitenAiartSDXL_v33515.safetensors -d /app/webui/models/Stable-diffusion -o duchaitenAiartSDXL_v33515.safetensors",
+        "aria2c --console-log-level=error -c -x 16 -s 16 -k 1M https://huggingface.co/ckpt/sdxl_vae/resolve/main/sdxl_vae.safetensors -d /app/webui/models/VAE -o sdxl_vae.safetensors",
+        "python -m venv /app/webui/venv",
+        "cd /app/webui && . venv/bin/activate && " +
+        "python -c 'from modules import launch_utils; launch_utils.prepare_environment()' --xformers",
+        gpu="a100",
     )
     .run_commands(
-        # Install torch (Modal sudah ada CUDA)
-        "pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118",
-        "pip install xformers",
-        
-        # Clone Auto1111
-        "git clone --depth 1 https://github.com/AUTOMATIC1111/stable-diffusion-webui /app/webui",
-        
-        # Setup venv
-        "cd /app/webui && python3 -m venv venv",
-        "cd /app/webui && . venv/bin/activate && pip install --upgrade pip",
-        
-        # Install requirements
-        "cd /app/webui && . venv/bin/activate && pip install -r requirements.txt",
-        
-        # Install additional packages
-        "cd /app/webui && . venv/bin/activate && pip install accelerate safetensors",
-        
-        # Extensions
-        "mkdir -p /app/webui/extensions",
-        "cd /app/webui/extensions && git clone --depth 1 https://github.com/kohya-ss/sd-webui-additional-networks || true",
-        
-        # Models
-        "mkdir -p /app/webui/models/Stable-diffusion /app/webui/models/Lora",
-        "cd /app/webui/models/Stable-diffusion && wget -q https://huggingface.co/runwayml/stable-diffusion-v1-5/resolve/main/v1-5-pruned-emaonly.safetensors -O v1-5-pruned-emaonly.safetensors || true",
+        "cd /app/webui && . venv/bin/activate && " +
+        "python -c 'from modules import shared_init, initialize; shared_init.initialize(); initialize.initialize()'",
+        gpu="a100",
     )
 )
 
-app = modal.App("a1111-fixed", image=a1111_image)
+app = modal.App("a1111-webui", image=a1111_image)
 
+# Mount volume persisten ke path /webui agar file instalasi tersimpan antar eksekusi.
 @app.function(
     gpu="a100",
+    cpu=2,
+    memory=1024,
     timeout=3600,
+    allow_concurrent_inputs=100,
     keep_warm=1,
     volumes={"/webui": vol}
 )
-@modal.web_server(port=PORT, startup_timeout=300)
+@modal.web_server(port=PORT, startup_timeout=180)
 def run():
+    # Jika folder /webui (yang dipersist) masih kosong, salin dari /app/webui (baked ke image)
     if not os.path.exists("/webui/launch.py"):
-        print("📦 Copying WebUI to persistent volume...")
         subprocess.run("cp -r /app/webui/* /webui/", shell=True, check=True)
     
-    os.makedirs("/webui/models/Lora", exist_ok=True)
-    
-    print("🚀 Starting WebUI...")
+    # Ubah file shared_options.py dengan menambahkan opsi "sd_vae" dan "CLIP_stop_at_last_layers"
+    os.system(
+        r"sed -i -e 's/\[\"sd_model_checkpoint\"\]/\[\"sd_model_checkpoint\",\"sd_vae\",\"CLIP_stop_at_last_layers\"\]/g' /webui/modules/shared_options.py"
+    )
     
     START_COMMAND = f"""
-cd /webui && . venv/bin/activate && python launch.py \
-    --listen \
-    --port {PORT} \
-    --skip-prepare-environment \
-    --skip-torch-cuda-test \
-    --no-download-sd-model \
-    --xformers \
-    --api \
-    --enable-insecure-extension-access
+cd /webui && \
+. venv/bin/activate && \
+accelerate launch \
+    --num_processes=1 \
+    --num_machines=1 \
+    --mixed_precision=fp16 \
+    --dynamo_backend=inductor \
+    --num_cpu_threads_per_process=6 \
+    launch.py \
+        --skip-prepare-environment \
+        --no-gradio-queue \
+        --listen \
+        --port {PORT}
 """
-    
-    process = subprocess.Popen(START_COMMAND, shell=True)
-    process.wait()
-
-@app.function(volumes={"/webui": vol})
-def upload_lora(lora_file_path: str):
-    import shutil
-    lora_filename = os.path.basename(lora_file_path)
-    dest_path = f"/webui/models/Lora/{lora_filename}"
-    shutil.copy2(lora_file_path, dest_path)
-    return {"status": "success", "path": dest_path}
-
-@app.function(volumes={"/webui": vol}) 
-def list_loras():
-    lora_dir = "/webui/models/Lora"
-    lora_files = []
-    if os.path.exists(lora_dir):
-        for file in os.listdir(lora_dir):
-            if file.endswith('.safetensors'):
-                file_path = os.path.join(lora_dir, file)
-                file_size = os.path.getsize(file_path)
-                lora_files.append({
-                    "name": file,
-                    "size": file_size,
-                })
-    return {"loras": lora_files}
-
-if __name__ == "__main__":
-    print("🚀 Auto1111 WebUI - Fixed for Modal")
-    print("🌐 Access at: https://your-username--a1111-fixed.modal.run")
+    subprocess.Popen(START_COMMAND, shell=True)
