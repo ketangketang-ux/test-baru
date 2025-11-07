@@ -6,13 +6,12 @@ PORT = 8000
 
 vol = modal.Volume.from_name("a1111-cache", create_if_missing=True)
 
-# Pakai image yang lebih compatible
+# Pakai approach yang lebih simple - skip auto-install
 a1111_image = (
-    modal.Image.debian_slim(python_version="3.10")  # Python 3.10 lebih stable
+    modal.Image.debian_slim(python_version="3.10")
     .apt_install(
         "wget",
         "git", 
-        "aria2",
         "libgl1",
         "libglib2.0-0",
         "libsm6",
@@ -20,37 +19,35 @@ a1111_image = (
         "libxrender-dev",
     )
     .run_commands(
-        # Clone Auto1111 dengan branch yang stable
-        "git clone --depth 1 --branch v1.6.0 https://github.com/AUTOMATIC1111/stable-diffusion-webui /app/webui",
+        # Install torch yang compatible manual
+        "pip install torch==2.0.1+cu118 torchvision==0.15.2+cu118 --index-url https://download.pytorch.org/whl/cu118",
+        "pip install --upgrade pip",
+        "pip install xformers",
         
-        # Install torch yang compatible dulu
-        "pip install torch==2.0.1 torchvision==0.15.2 --index-url https://download.pytorch.org/whl/cu118",
+        # Clone Auto1111
+        "git clone --depth 1 https://github.com/AUTOMATIC1111/stable-diffusion-webui /app/webui",
         
-        # Setup WebUI
+        # Buat venv dan install requirements manual
         "cd /app/webui && python -m venv venv",
         "cd /app/webui && . venv/bin/activate && pip install --upgrade pip",
         
-        # Install requirements dengan version fixing
-        "cd /app/webui && . venv/bin/activate && pip install -r requirements.txt",
+        # Install requirements manual tanpa torch (karena udah diinstall)
+        "cd /app/webui && . venv/bin/activate && grep -v '^torch' requirements.txt > requirements_no_torch.txt && pip install -r requirements_no_torch.txt",
         
-        # Install pytorch-lightning version yang compatible
-        "cd /app/webui && . venv/bin/activate && pip install pytorch_lightning==1.9.4",
+        # Install individual packages yang needed
+        "cd /app/webui && . venv/bin/activate && pip install pytorch_lightning==1.9.4 transformers accelerate safetensors",
         
-        # Install xformers untuk performance
-        "cd /app/webui && . venv/bin/activate && pip install xformers==0.0.20",
-        
-        # Extensions penting
+        # Extensions
+        "mkdir -p /app/webui/extensions",
         "cd /app/webui/extensions && git clone --depth 1 https://github.com/kohya-ss/sd-webui-additional-networks",
         
-        # Buat folder models
+        # Models
         "mkdir -p /app/webui/models/Stable-diffusion /app/webui/models/Lora",
-        
-        # Download model kecil dulu untuk testing
         "cd /app/webui/models/Stable-diffusion && wget -q https://huggingface.co/runwayml/stable-diffusion-v1-5/resolve/main/v1-5-pruned-emaonly.safetensors -O v1-5-pruned-emaonly.safetensors",
     )
 )
 
-app = modal.App("a1111-fixed", image=a1111_image)
+app = modal.App("a1111-working", image=a1111_image)
 
 @app.function(
     gpu="a100",
@@ -68,16 +65,17 @@ def run():
     
     print("🚀 Starting WebUI...")
     
+    # Skip environment preparation karena udah diinstall manual
     START_COMMAND = f"""
 cd /webui && \
 . venv/bin/activate && \
 python launch.py \
     --listen \
     --port {PORT} \
+    --skip-prepare-environment \
     --skip-torch-cuda-test \
     --no-download-sd-model \
-    --xformers \
-    --disable-safe-unpickle
+    --xformers
 """
     
     process = subprocess.Popen(START_COMMAND, shell=True)
@@ -107,6 +105,6 @@ def list_loras():
     return {"loras": lora_files}
 
 if __name__ == "__main__":
-    print("🚀 Auto1111 WebUI - Fixed Version")
-    print("🔧 Fixed pytorch_lightning dependency")
-    print("🌐 Access at: https://your-username--a1111-fixed.modal.run")
+    print("🚀 Auto1111 WebUI - Manual Install Version")
+    print("🔧 Pre-installed torch and dependencies")
+    print("🌐 Access at: https://your-username--a1111-working.modal.run")
