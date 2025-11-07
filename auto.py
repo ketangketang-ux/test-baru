@@ -1,5 +1,3 @@
-# cell 3: Create fixed version
-%%writefile /content/auto_fixed.py
 import os
 import subprocess
 import modal
@@ -8,7 +6,7 @@ PORT = 8000
 
 vol = modal.Volume.from_name("a1111-cache", create_if_missing=True)
 
-# FIXED: Remove CUDA manual install, use Modal's built-in CUDA
+# FIXED VERSION - tanpa CUDA manual install
 a1111_image = (
     modal.Image.debian_slim(python_version="3.10")
     .apt_install(
@@ -23,7 +21,7 @@ a1111_image = (
         "python3-pip",
     )
     .run_commands(
-        # FIXED: Install torch without specifying CUDA version (Modal sudah include CUDA)
+        # Install torch (Modal sudah ada CUDA)
         "pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118",
         "pip install xformers",
         
@@ -34,19 +32,19 @@ a1111_image = (
         "cd /app/webui && python3 -m venv venv",
         "cd /app/webui && . venv/bin/activate && pip install --upgrade pip",
         
-        # FIXED: Install requirements directly
+        # Install requirements
         "cd /app/webui && . venv/bin/activate && pip install -r requirements.txt",
         
         # Install additional packages
         "cd /app/webui && . venv/bin/activate && pip install accelerate safetensors",
         
-        # Extensions (with error handling)
+        # Extensions
         "mkdir -p /app/webui/extensions",
-        "cd /app/webui/extensions && git clone --depth 1 https://github.com/kohya-ss/sd-webui-additional-networks || echo 'Extension install failed, continuing...'",
+        "cd /app/webui/extensions && git clone --depth 1 https://github.com/kohya-ss/sd-webui-additional-networks || true",
         
         # Models
         "mkdir -p /app/webui/models/Stable-diffusion /app/webui/models/Lora",
-        "cd /app/webui/models/Stable-diffusion && wget -q https://huggingface.co/runwayml/stable-diffusion-v1-5/resolve/main/v1-5-pruned-emaonly.safetensors -O v1-5-pruned-emaonly.safetensors || echo 'Model download failed, continuing...'",
+        "cd /app/webui/models/Stable-diffusion && wget -q https://huggingface.co/runwayml/stable-diffusion-v1-5/resolve/main/v1-5-pruned-emaonly.safetensors -O v1-5-pruned-emaonly.safetensors || true",
     )
 )
 
@@ -107,6 +105,5 @@ def list_loras():
     return {"loras": lora_files}
 
 if __name__ == "__main__":
-    print("🚀 Auto1111 WebUI - Fixed Version")
-    print("🔧 Removed manual CUDA install")
+    print("🚀 Auto1111 WebUI - Fixed for Modal")
     print("🌐 Access at: https://your-username--a1111-fixed.modal.run")
