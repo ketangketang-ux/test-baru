@@ -26,6 +26,9 @@ a1111_image = (
     .run_commands(
         # Clone kode ke folder /app/webui (bukan /webui)
         "git clone --depth 1 --branch v1.10.1 https://github.com/AUTOMATIC1111/stable-diffusion-webui /app/webui",
+        # Tambahan: clone extension penting
+        "git clone --depth 1 https://github.com/Gourieff/sd-webui-reactor /app/webui/extensions/sd-webui-reactor",
+        "git clone --depth 1 https://github.com/Mikubill/sd-webui-controlnet /app/webui/extensions/sd-webui-controlnet",
         "git clone --depth 1 https://github.com/BlafKing/sd-civitai-browser-plus /app/webui/extensions/sd-civitai-browser-plus",
         "git clone --depth 1 https://huggingface.co/embed/negative /app/webui/embeddings/negative",
         "git clone --depth 1 https://huggingface.co/embed/lora /app/webui/models/Lora/positive",
@@ -34,6 +37,7 @@ a1111_image = (
         "aria2c --console-log-level=error -c -x 16 -s 16 -k 1M https://huggingface.co/embed/upscale/resolve/main/4x-UltraSharp.pth -d /app/webui/models/ESRGAN -o 4x-UltraSharp.pth",
         "aria2c --console-log-level=error -c -x 16 -s 16 -k 1M https://huggingface.co/artmozai/duchaiten-aiart-xl/resolve/main/duchaitenAiartSDXL_v33515.safetensors -d /app/webui/models/Stable-diffusion -o duchaitenAiartSDXL_v33515.safetensors",
         "aria2c --console-log-level=error -c -x 16 -s 16 -k 1M https://huggingface.co/ckpt/sdxl_vae/resolve/main/sdxl_vae.safetensors -d /app/webui/models/VAE -o sdxl_vae.safetensors",
+        # Setup virtual environment dan dependencies
         "python -m venv /app/webui/venv",
         "cd /app/webui && . venv/bin/activate && " +
         "python -c 'from modules import launch_utils; launch_utils.prepare_environment()' --xformers",
@@ -92,6 +96,7 @@ def run():
         r"sed -i -e 's/\[\"sd_model_checkpoint\"\]/\[\"sd_model_checkpoint\",\"sd_vae\",\"CLIP_stop_at_last_layers\"\]/g' /webui/modules/shared_options.py"
     )
     
+    # ✅ Fix: aktifkan akses extension
     START_COMMAND = f"""
 cd /webui && \
 . venv/bin/activate && \
@@ -105,11 +110,12 @@ accelerate launch \
         --skip-prepare-environment \
         --no-gradio-queue \
         --listen \
+        --enable-insecure-extension-access \
         --port {PORT}
 """
     subprocess.Popen(START_COMMAND, shell=True)
 
-# FUNCTION BARU: Download Qwen model dengan token
+# FUNCTION BARU: Download Qwen model menggunakan token HF
 @app.function(
     volumes={"/webui": vol},
     secrets=[HF_SECRET]
